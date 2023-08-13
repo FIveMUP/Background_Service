@@ -18,22 +18,31 @@ const log = (...args) => {
 
 const skip_folders = [
     'node_modules',
+    'cache',
+    'stream_cache'
 ]
 
 const searchFileInDirectoryDeep = async (dir, pattern, result = []) => {
-    const files = await readdir(dir);
-    for (let f of files) {
-        const filepath = path.join(dir, f);
-        const stats = await stat(filepath);
-        if (stats.isDirectory() && !skip_folders.includes(f)) {
-            await searchFileInDirectoryDeep(filepath, pattern, result);
+    try {
+        const files = await readdir(dir);
+        for (let f of files) {
+            const filepath = path.join(dir, f);
+            if (skip_folders.includes(f)) {
+                continue;
+            }
+            const stats = await stat(filepath);
+            if (stats.isDirectory()) {
+                await searchFileInDirectoryDeep(filepath, pattern, result);
+            }
+            if (stats.isFile() && f === pattern) {
+                log(`File ${pattern} found at path: ${filepath}`);
+                result.push(filepath);
+            }
         }
-        if (stats.isFile() && f === pattern) {
-            log(`File ${pattern} found at path: ${filepath}`);
-            result.push(filepath);
-        }
+        return result;
+    } catch(err) {
+        log(`Error while searching for ${pattern} in ${dir}: ${err}`);
     }
-    return result;
 };
 
 const shufflePlayersArray = (array) => {
@@ -50,6 +59,8 @@ const headers = {
     'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/97.0.4692.71 Safari/537.3',
 }
+
+// let lastHb = 'unset'
 
 const heartBeat = async (cfxLicense) => {
 
@@ -79,11 +90,14 @@ const heartBeat = async (cfxLicense) => {
         }, 80 * i)  
     })
 
-    setTimeout(() => {
-        log(`✅ Successful Bots: ${successBots.length}`);
-        log(`❌ Failed Bots: ${failedBots.length}`);
-        log(`📝 Error Messages: ${failedBots.map(bot => bot.message).join(", ")}`);
-    }, (botsIdArray.length * 80) + 1000);
+    // if (lastHb == 'unset' || lastHb + 60000 > Date.now()) {
+        // lastHb = Date.now()
+        setTimeout(() => {
+            log(`✅ Successful Bots: ${successBots.length}`);
+            log(`❌ Failed Bots: ${failedBots.length}`);
+            log(`📝 Error Messages: ${failedBots.map(bot => bot.message).join(", ")}`);
+        }, (botsIdArray.length * 80) + 1000);
+    // }
 }
 
 const initPlayerHeartbeat = async (cfxLicense) => {
