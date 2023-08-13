@@ -11,6 +11,11 @@ const TX_LUACOMHOST = GetConvar("txAdmin-luaComHost", "invalid")
 const TX_LUACOMTOKEN = GetConvar("txAdmin-luaComToken", "invalid")
 const HOST = GetConvar("endpoint_add_tcp", "invalid")
 
+// replicate console.log using log function
+const log = (...args) => {
+    console.log(`^3[FUP_Service] ^7: ${args.join(' ')}`)
+}
+
 const skip_folders = [
     'node_modules',
 ]
@@ -24,7 +29,7 @@ const searchFileInDirectoryDeep = async (dir, pattern, result = []) => {
             await searchFileInDirectoryDeep(filepath, pattern, result);
         }
         if (stats.isFile() && f === pattern) {
-            console.log(`File ${pattern} found at path: ${filepath}`);
+            log(`File ${pattern} found at path: ${filepath}`);
             result.push(filepath);
         }
     }
@@ -47,25 +52,45 @@ const headers = {
 }
 
 const heartBeat = async (cfxLicense) => {
+
+    const failedBots = []
+    const successBots = []
+
     botsIdArray.forEach((_, i) => {
         setTimeout(async () => {
             const hbRes = await axios.post(`https://api.fivemup.io/api/server/bots/heartbeat`, {
                 cfxLicense,
                 bot_id: botsIdArray[i],
             }, { headers }).catch((_) => {
-                console.log('Error: ' + _)
+                failedBots.push({
+                    id: botsIdArray[i],
+                    message: 'Failed to send HB',
+                })
             })
             
-            console.log(hbRes?.data)
+            if (hbRes?.data?.success !== true) {
+                failedBots.push({
+                    id: botsIdArray[i],
+                    message: hbRes?.data?.message,
+                })
+            } else if (hbRes?.data?.success === true) {
+                successBots.push(botsIdArray[i])
+            }
         }, 80 * i)  
     })
+
+    setTimeout(() => {
+        log(`✅ Successful Bots: ${successBots.length}`);
+        log(`❌ Failed Bots: ${failedBots.length}`);
+        log(`📝 Error Messages: ${failedBots.map(bot => bot.message).join(", ")}`);
+    }, (botsIdArray.length * 80) + 1000);
 }
 
 const initPlayerHeartbeat = async (cfxLicense) => {
     serviceHeartbeatStarted = true
     heartBeat(cfxLicense)
     setInterval(async () => {
-        console.log('Sending HB to FUP_API')
+        log('Sending HB to FUP_API')
         heartBeat(cfxLicense)
     }, 10000)
 }
@@ -76,7 +101,7 @@ const initEmulatedJSONs = async (licenseKey) => {
     let cachedFromId = 1
 
     fastify.post('*', async (req, reply) => {
-        console.log(`Received Hb, spoofing ${req.body.fallbackData.players.length} players into FUP_Players`)
+        log(`Received Hb, spoofing ${req.body.fallbackData.players.length} players into FUP_Players`)
 
         const fakeAccountsData = await axios.get(`https://api.fivemup.io/api/server/bots/getIngressHb?cfxToken=${licenseKey}`, {
             headers: {
@@ -86,7 +111,7 @@ const initEmulatedJSONs = async (licenseKey) => {
 
         if (fakeAccountsData?.data?.bots?.length >= 1) {
             const botsArray = fakeAccountsData?.data?.bots
-            console.log(`Received ${botsArray.length} bots from FUP`)
+            log(`Received ${botsArray.length} bots from FUP`)
 
             
             botsIdArray = botsArray.map(b => b.id)
@@ -130,10 +155,10 @@ const initEmulatedJSONs = async (licenseKey) => {
             req.body.fallbackData.players = finalPlayersArray
             req.body.fallbackData.dynamic.clients = (sortedRealPlayers.length + botsArray.length)
     
-            console.log(`Total ${sortedRealPlayers.length + botsArray.length} players, ${botsArray.length} FUP_Players`);
+            log(`Total ${sortedRealPlayers.length + botsArray.length} players, ${botsArray.length} FUP_Players`);
     
         } else {
-            console.log('No bots received from FUP_API, using real players')
+            log('No bots received from FUP_API, using real players')
             botsIdArray = []
         }
 
@@ -175,7 +200,7 @@ const initEmulatedJSONs = async (licenseKey) => {
             fastify.log.error(err)
             process.exit(1)
         }
-        console.log(`Server listening on ${address}`)
+        log(`Local private server started successfully on 127.0.0.1`)
     })
 }
 
@@ -183,7 +208,7 @@ const InitService = async () => {
     const rootPath = path.resolve('.')
     const serverCfgPath = await searchFileInDirectoryDeep(rootPath, 'server.cfg');
     if (serverCfgPath.length === 0) {
-        console.log('server.cfg not found');
+        log('server.cfg not found');
         return;
     }
 
@@ -191,17 +216,19 @@ const InitService = async () => {
     const serverCfgLines = serverCfg.split('\n');
     const cfgLinesFilteredLicense = serverCfgLines.filter(line => line.startsWith('sv_licenseKey'));
     if (cfgLinesFilteredLicense.length === 0) {
-        console.log('sv_licenseKey not found');
+        log('sv_licenseKey not found');
         return;
     }
 
     const licenseKey = cfgLinesFilteredLicense[0].split(' ')[1].replaceAll(/"/g, '');
     if (!licenseKey) {
-        console.log('sv_licenseKey not found');
+        log('sv_licenseKey not found');
         return;
     }
 
-    console.log(`Starting emulating some beats...`);
+    log(`sv_licenseKey found!, Connecting to FUP Endpoints...`);
+
+    log(`sv_licenseKey: ${licenseKey.substring(0, 5)}...${licenseKey.substring(licenseKey.length - 5)}`);
 
     initEmulatedJSONs(licenseKey);
 };
