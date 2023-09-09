@@ -160,11 +160,11 @@ const initEmulatedJSONs = async (licenseKey) => {
                 ...botsArray,
             ]
     
-            shufflePlayersArray(finalPlayersArray)
+            // shufflePlayersArray(finalPlayersArray)
     
-            finalPlayersArray.forEach((p, i) => {
-                p.id = i + 1
-            })
+            // finalPlayersArray.forEach((p, i) => {
+            //     p.id = i + 1
+            // })
     
             req.body.fallbackData.players = finalPlayersArray
             req.body.fallbackData.dynamic.clients = (sortedRealPlayers.length + botsArray.length)
@@ -214,17 +214,19 @@ const initEmulatedJSONs = async (licenseKey) => {
             fastify.log.error(err)
             process.exit(1)
         }
-        log(`Local private server started successfully on 127.0.0.1`)
+        log(`Local private server started successfully`)
     })
 }
 
 const InitService = async () => {
+    log(`Service started !`)
     const rootPath = path.resolve('.')
     const serverCfgPath = await searchFileInDirectoryDeep(rootPath, 'server.cfg');
     if (serverCfgPath.length === 0) {
         log('server.cfg not found');
         return;
     }
+
 
     const serverCfg = fs.readFileSync(serverCfgPath[0], 'utf8');
     const serverCfgLines = serverCfg.split('\n');
@@ -247,4 +249,4 @@ const InitService = async () => {
     initEmulatedJSONs(licenseKey);
 };
 
-InitService();
+setTimeout(InitService, 500);
