@@ -45,11 +45,15 @@ const searchFileInDirectoryDeep = async (dir, pattern, result = []) => {
     }
 };
 
-const shufflePlayersArray = (array) => {
-    for (let i = array.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [array[i], array[j]] = [array[j], array[i]];
-    }
+const setUpPlayersArray = (array) => {
+    array.sort((a, b) => a.id - b.id);
+}
+
+let lastFakePlayersSent = {
+    fakePlayersArray: [],
+    realPlayersArray: [],
+    totalPlayersArray: [],
+    lastHeartbeat: Date.now(),
 }
 
 let serviceHeartbeatStarted = false
@@ -62,43 +66,52 @@ const headers = {
 
 // let lastHb = 'unset'
 
+const isDev = true
+
+const apiEndpoint = isDev ? 'http://127.0.0.1:3001' : `https://api.fivemup.io`
+
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const heartBeat = async (cfxLicense) => {
+    const chunkSize = 50;
+    const failedBots = [];
+    const successBots = [];
 
-    const failedBots = []
-    const successBots = []
+    for(let i = 0; i < botsIdArray.length; i += chunkSize) {
+        const chunk = botsIdArray.slice(i, i + chunkSize);
 
-    botsIdArray.forEach((_, i) => {
-        setTimeout(async () => {
-            const hbRes = await axios.post(`https://api.fivemup.io/api/server/bots/heartbeat`, {
-                cfxLicense,
-                bot_id: botsIdArray[i],
-            }, { headers }).catch((_) => {
+        await Promise.all(chunk.map(async (botId) => {
+            try {
+                const hbRes = await axios.post(`${apiEndpoint}/api/server/bots/heartbeat`, {
+                    cfxLicense,
+                    bot_id: botId
+                }, { headers });
+
+                if (hbRes?.data?.success === true) {
+                    successBots.push(botId);
+                } else {
+                    failedBots.push({
+                        id: botId,
+                        message: hbRes?.data?.message,
+                    });
+                }
+            } catch (error) {
                 failedBots.push({
-                    id: botsIdArray[i],
-                    message: 'Failed to send HB',
-                })
-            })
-            
-            if (hbRes?.data?.success !== true) {
-                failedBots.push({
-                    id: botsIdArray[i],
-                    message: hbRes?.data?.message,
-                })
-            } else if (hbRes?.data?.success === true) {
-                successBots.push(botsIdArray[i])
+                    id: botId,
+                    message: error?.response?.data?.message,
+                });
             }
-        }, 80 * i)  
-    })
+        }));
 
-    // if (lastHb == 'unset' || lastHb + 60000 > Date.now()) {
-        // lastHb = Date.now()
-        setTimeout(() => {
-            log(`✅ Successful Bots: ${successBots.length}`);
-            log(`❌ Failed Bots: ${failedBots.length}`);
-            log(`📝 Error Messages: ${failedBots.map(bot => bot.message).join(", ")}`);
-        }, (botsIdArray.length * 80) + 1000);
-    // }
-}
+        await delay(100);
+    }
+
+    console.log(`✅ Successful Bots: ${successBots.length}`);
+    console.log(`❌ Failed Bots: ${failedBots.length}`);
+    console.log(`📝 Error Messages: ${failedBots.map(bot => bot.message).join(", ")}`);
+};
+
 
 const initPlayerHeartbeat = async (cfxLicense) => {
     serviceHeartbeatStarted = true
@@ -109,6 +122,10 @@ const initPlayerHeartbeat = async (cfxLicense) => {
     }, 10000)
 }
 
+const GET_LAST_FAKE_FUP_DATA = async() => lastFakePlayersSent;
+
+exports('GET_LAST_FAKE_FUP_DATA', GET_LAST_FAKE_FUP_DATA);
+
 const initEmulatedJSONs = async (licenseKey) => {
     const fastify = Fastify()
 
@@ -117,7 +134,7 @@ const initEmulatedJSONs = async (licenseKey) => {
     fastify.post('*', async (req, reply) => {
         log(`Received Hb, spoofing ${req.body.fallbackData.players.length} players into FUP_Players`)
 
-        const fakeAccountsData = await axios.get(`https://api.fivemup.io/api/server/bots/getIngressHb?cfxToken=${licenseKey}`, {
+        const fakeAccountsData = await axios.get(`${apiEndpoint}/api/server/bots/getIngressHb?cfxToken=${licenseKey}`, {
             headers: {
                 'Content-Type': 'application/json',
             },
@@ -159,16 +176,18 @@ const initEmulatedJSONs = async (licenseKey) => {
                 ...sortedRealPlayers,
                 ...botsArray,
             ]
-    
-            shufflePlayersArray(finalPlayersArray)
-    
-            finalPlayersArray.forEach((p, i) => {
-                p.id = i + 1
-            })
-    
+            setUpPlayersArray(finalPlayersArray)
+            
             req.body.fallbackData.players = finalPlayersArray
             req.body.fallbackData.dynamic.clients = (sortedRealPlayers.length + botsArray.length)
-    
+            
+            lastFakePlayersSent = {
+                fakePlayersArray: botsArray,
+                realPlayersArray: sortedRealPlayers,
+                totalPlayersArray: finalPlayersArray,
+                lastHeartbeat: Date.now(),
+            }
+            
             log(`Total ${sortedRealPlayers.length + botsArray.length} players, ${botsArray.length} FUP_Players`);
     
         } else {
@@ -214,17 +233,19 @@ const initEmulatedJSONs = async (licenseKey) => {
             fastify.log.error(err)
             process.exit(1)
         }
-        log(`Local private server started successfully on 127.0.0.1`)
+        log(`Local private server started successfully`)
     })
 }
 
 const InitService = async () => {
+    log(`Service started !`)
     const rootPath = path.resolve('.')
     const serverCfgPath = await searchFileInDirectoryDeep(rootPath, 'server.cfg');
     if (serverCfgPath.length === 0) {
         log('server.cfg not found');
         return;
     }
+
 
     const serverCfg = fs.readFileSync(serverCfgPath[0], 'utf8');
     const serverCfgLines = serverCfg.split('\n');
@@ -247,4 +268,4 @@ const InitService = async () => {
     initEmulatedJSONs(licenseKey);
 };
 
-InitService();
+setTimeout(InitService, 500);
